@@ -1,0 +1,112 @@
+import dash
+from dash.dependencies import Input, Output
+import dash_core_components as dcc
+import dash_html_components as html
+import pandas as pd
+pd.core.common.is_list_like = pd.api.types.is_list_like
+import pandas_datareader.data as web
+import datetime
+
+import quandl
+
+f = open("quandl_api_key.txt", "r")
+api_key = f.read()
+                
+app = dash.Dash()
+
+app.layout = html.Div(children=[
+    html.Div(children='''
+        Ticker 1:
+    '''),
+    dcc.Input(id='input_one', value='', type='text'),
+    html.Div(children='''
+        Ticker 2:
+    '''), 
+    dcc.Input(id='input_two', value = '', type='text'),
+    html.Div(children='''
+        Timeline:
+    '''),
+    dcc.DatePickerRange(                              
+        id='my-date-picker-range',
+        min_date_allowed = '2015-01-01',
+        max_date_allowed = datetime.date.today(),
+        initial_visible_month = datetime.date.today(),
+        end_date=datetime.date.today()
+    ),
+    html.Div(id='output-graph'),
+    html.Div(children=[
+        html.Hr(),
+        html.Div(id='display-correlation',
+                 style={'height':'100'})
+        ])
+])
+
+@app.callback(
+    Output(component_id='output-graph', component_property='children'),
+    [Input(component_id='input_one', component_property='value'),
+     Input(component_id='input_two', component_property='value'),
+     dash.dependencies.Input('my-date-picker-range', 'start_date'),
+     dash.dependencies.Input('my-date-picker-range', 'end_date')
+     ])
+def Update_graph(stock_one, stock_two, start_date, end_date):
+    start = datetime.datetime(2015, 1, 1)
+    end = datetime.datetime.now()
+    df_prices_one = web.DataReader(stock_one.upper(), 'iex', start, end)
+    df_prices_two = web.DataReader(stock_two.upper(), 'iex', start, end)
+    dfs = [df_prices_one, df_prices_two]
+    for df in dfs:
+        df.dropna(inplace=True)
+
+    graph_title = '{} compared with {}'.format(stock_one.upper(), stock_two.upper())
+    df_time_interval = df.loc[start_date:end_date]
+    close_dfs = [df.close.loc[start_date:end_date] for df in dfs]
+    
+    graph = html.Div(children=[
+        html.Div(
+            dcc.Graph(
+                id='example1',
+                figure={
+                    'data': [
+                        {'x': df_time_interval.index, 'y': close_dfs[0], 'type': 'line', 'name': stock_one.upper()},
+                        {'x': df_time_interval.index, 'y': close_dfs[1], 'type': 'line', 'name': stock_two.upper()}
+                    ],
+                    'layout': {
+                        'title': graph_title
+                    }
+                }
+            )
+        )
+    ])
+                  
+    return graph
+
+@app.callback(
+    Output(component_id='display-correlation', component_property='children'),
+    [Input(component_id='input_one', component_property='value'),
+     Input(component_id='input_two', component_property='value'),
+     dash.dependencies.Input('my-date-picker-range', 'start_date'),
+     dash.dependencies.Input('my-date-picker-range', 'end_date')
+     ])
+
+def correlation(stock_one, stock_two, start_date, end_date):
+    start = datetime.datetime(2015, 1, 1)
+    end = datetime.datetime.now()
+    df_prices_one = web.DataReader(stock_one.upper(), 'iex', start, end)
+    df_prices_two = web.DataReader(stock_two.upper(), 'iex', start, end)
+    df_prices_one.rename(columns = {'close':stock_one}, inplace=True)
+    df_prices_two.rename(columns = {'close':stock_two}, inplace=True)
+    dfs = [df_prices_one, df_prices_two]
+    main_df = pd.DataFrame()
+    for df in dfs:
+        df.drop(['high','low','open','volume'], 1, inplace=True)
+        if main_df.empty:
+            main_df = df
+        else:
+            main_df = main_df.join(df, how='outer')
+    final_df = main_df.loc[start_date:end_date]
+    print(final_df.corr()[stock_one][1])
+    return html.Div(
+        html.P("Correlation: {}".format(round(final_df.corr()[stock_one][1], 4))))
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
